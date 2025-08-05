@@ -43,6 +43,7 @@ def find_max_pack_len_with_padding(
     num_gpus,
     avg_sample_len,
     seed,
+    shuffle,
 ):
     """
     This function calculates the maximum batch length with padding for a given dataset. it uses a binary search to find the optimal addition to the average sample length that will result in the average batch size per minibatch being less than or equal to the number of samples per minibatch.
@@ -58,7 +59,7 @@ def find_max_pack_len_with_padding(
     - The maximum batch length with padding for the given dataset.
     """
 
-    def get_effective_samples_per_minibatch(num_tokens_per_gpu):
+    def get_effective_samples_per_minibatch(num_tokens_per_gpu , shuffle):
         """
         This nested function calculates the effective number of samples per minibatch for a given number of tokens per GPU.
 
@@ -82,6 +83,7 @@ def find_max_pack_len_with_padding(
             rank=torch.distributed.get_rank(),
             seed=seed,
             padding=True,
+            shuffle=shuffle,
         )
         batches = sampler.generate_batches()
         return len(dataset) / len(batches)
@@ -92,12 +94,14 @@ def find_max_pack_len_with_padding(
     packing_max_batch_len = int(avg_sample_len * samples_per_gpu)
 
     avg_bs_per_minibatch = get_effective_samples_per_minibatch(
-        packing_max_batch_len + addition
+        packing_max_batch_len + addition,
+        shuffle
     )
     while avg_bs_per_minibatch <= samples_per_minibatch:
         addition *= 2
         avg_bs_per_minibatch = get_effective_samples_per_minibatch(
-            packing_max_batch_len + addition
+            packing_max_batch_len + addition,
+            shuffle
         )
 
     l = 0
@@ -105,7 +109,8 @@ def find_max_pack_len_with_padding(
     while r - l > 1:
         addition = (l + r) // 2
         avg_bs_per_minibatch = get_effective_samples_per_minibatch(
-            packing_max_batch_len + addition
+            packing_max_batch_len + addition,
+            shuffle
         )
 
         # check if simulation resulted in batch sizes close enough to goal and adjust if needed
@@ -129,6 +134,7 @@ def find_packing_max_batch_len_and_grad_accum(
     is_padding,
     dataset,
     seed,
+    shuffle,
 ):
     """
     Calculate the minimum gradient accumulation steps required and the corresponding maximum batch length.
@@ -171,6 +177,7 @@ def find_packing_max_batch_len_and_grad_accum(
                 num_gpus,
                 avg_sample_len,
                 seed,
+                shuffle,
             )
         else:
             packing_max_batch_len = int((avg_sample_len) * samples_per_gpu)
@@ -359,6 +366,7 @@ class MultipackDistributedBatchSampler(Sampler):
         rank: Optional[int] = None,
         seed: int = 0,
         padding: bool = True,
+        shuffle: bool = True,
     ):
         # Get rank
         if num_replicas is None:
@@ -384,14 +392,28 @@ class MultipackDistributedBatchSampler(Sampler):
         self.eff_total_used = 0
         self.eff_total_slots = 0
         self.padding = padding
+        self.shuffle = shuffle
 
     def set_epoch(self, epoch: int):
         self.epoch = epoch
 
     def generate_batches(self, set_stats=False):
-        indices = np.random.default_rng(seed=self.seed + self.epoch).permutation(
-            len(self.lengths)
-        )
+        if self.shuffle :
+            indices = np.random.default_rng(seed=self.seed + self.epoch).permutation(
+                len(self.lengths)
+            )
+        else:
+            mean = np.mean(self.lengths)
+            std = np.std(self.lengths)
+            d1 = max(0,int(mean - std))
+            d2 = min(max(self.lengths),int(mean + std))
+            g1 = np.where(self.lengths < d1)[0] 
+            g2 = np.where((self.lengths >= d1) &(self.lengths < d2)) [0] 
+            g3 = np.where(self.lengths >= d2)[0] 
+            g1_indices = np.random.default_rng(seed=self.seed + self.epoch).permutation(g1)
+            g2_indices = np.random.default_rng(seed=self.seed + self.epoch).permutation(g2)
+            g3_indices = np.random.default_rng(seed=self.seed + self.epoch).permutation(g3)
+            indices = np.concatenate([g3_indices , g2_indices , g1_indices])
 
         # remove indices where the entries are longer than batch max length
         indices = indices[self.lengths[indices] <= self.batch_max_length]

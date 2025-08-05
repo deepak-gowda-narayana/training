@@ -98,6 +98,7 @@ def setup_dataloader(
     sampler="multipack",
     seed=47,
     device=None,
+    shuffle=True
 ) -> DataLoader:
     collate_fn = make_collate_fn(
         pad_token_id, flash_enabled=flash_enabled, max_batch_len=max_batch_len,
@@ -119,6 +120,7 @@ def setup_dataloader(
             rank=rank,
             seed=seed,
             padding=not flash_enabled,
+            shuffle=shuffle,
         )
         sampler = {"batch_sampler": sampler}
     elif sampler == "distributed":

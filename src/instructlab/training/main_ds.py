@@ -367,6 +367,12 @@ def main(args):
         mock_len=args.mock_len,
     )
 
+    random_split_env = os.environ.get("RANDOM_SPLIT", "false").lower()
+
+    shuffle = random_split_env == "true"
+    if torch.distributed.get_rank() == 0:
+        print(f"shuffle = {shuffle}")
+
     # This model class wraps the various AutoModel classes we support
     # based on model_type, and model_path -> choose auto_model
     lora_config = None
@@ -416,6 +422,7 @@ def main(args):
             is_padding=not flash_enabled,
             dataset=dataset,
             seed=args.seed,
+            shuffle = shuffle
         )
         args.sampler = "multipack"
     except RuntimeError as e:
@@ -442,6 +449,7 @@ def main(args):
         sampler=args.sampler,
         seed=args.seed,
         device=args.device,
+        shuffle = shuffle,
     )
     if len(train_loader) == 0:
         # this happens sometimes when we have more GPUs than data to process. In this case
@@ -462,6 +470,7 @@ def main(args):
             sampler=args.sampler,
             seed=args.seed,
             device=args.device,
+            shuffle = shuffle,
         )
 
     if args.local_rank == 0:

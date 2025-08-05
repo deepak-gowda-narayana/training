@@ -82,12 +82,21 @@ class Model:
         """Common initialization steps that should happen after model initialization."""
 
         if self.device == "hpu" and os.getenv("HPU_ENABLE_TORCH_COMPILE", False):
-            cache_size_limit = 10*1000
-            torch._dynamo.config.cache_size_limit = cache_size_limit
-            torch._dynamo.config.accumulated_cache_size_limit = 2*cache_size_limit
-            self.model = torch.compile(self.model, backend="hpu_backend", dynamic=False)
-            for layer in self.model.model.layers:
-                layer.compile(backend="hpu_backend", dynamic=False) 
+            print("Running torch.compile")
+            torch._dynamo.config.cache_size_limit = 10*1000
+            torch._dynamo.config.accumulated_cache_size_limit = 20*1000
+            model_setting = os.environ.get("MODEL_TORCH_SETTING")
+            if model_setting == 'torch_1':
+                if torch.distributed.get_rank() == 0:
+                    print(f"Model is set to : (Model = False & Layer = False) setting")
+                self.model = torch.compile(self.model, backend="hpu_backend", dynamic=False)
+                for layer in self.model.model.layers:
+                    layer.compile(backend="hpu_backend", dynamic=False)
+            else:
+                if torch.distributed.get_rank() == 0:
+                    print(f"Model is set to : Layer=None(force_static_compile=True) setting")
+                for layer in self.model.model.layers:
+                    layer.compile(backend="hpu_backend", dynamic=None, options={"force_static_compile":True}) 
 
         self.reconcile_tokenizer()
         if self.lora_config:
