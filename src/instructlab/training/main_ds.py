@@ -118,6 +118,8 @@ def train(
         logger.info("Number of samples per DS save: %d", args.save_samples_ds)
 
     global_grad_norm = None
+    all_avg_loss_per_epoch = []
+
     for epoch in range(args.current_epoch, args.num_epochs):
         if args.sampler in ("multipack"):
             accelerator.train_loader.batch_sampler.set_epoch(epoch)
@@ -129,6 +131,7 @@ def train(
         num_epoch_steps = len(accelerator.train_loader)
         if local_rank == 0:
             inner_pb = tqdm(range(num_epoch_steps), desc=f"Epoch {epoch}")
+            all_loss = []
 
         # blast through the batches in the train loader up to the last step within the epoch. 
         for batch in accelerator.train_loader:
@@ -189,6 +192,8 @@ def train(
                 optimizer.step()
                 accelerator.lr_scheduler.step()
                 optimizer.zero_grad()
+                print(f"Epoch: {epoch}, Step: {global_step} ,  Rank: {torch.distributed.get_rank()} , step_time = {time.time() - start}")
+
 
             if local_rank == 0:
                 elapsed_time = time.time() - start
@@ -214,6 +219,12 @@ def train(
                 # weight_norm = float(
                 #     model.optimizer.single_partition_of_fp32_groups[0].norm()
                 # )
+
+                all_loss.append(float(log_loss / num_loss_counted_tokens))
+                if global_step % len(accelerator.train_loader) == 0:
+                    avg_loss_per_epoch = sum(all_loss) / len(all_loss)
+                    print(f"Average Loss Per Epoch = {avg_loss_per_epoch}")
+                    all_avg_loss_per_epoch.append(avg_loss_per_epoch)
 
                 # TODO - Bring back consistent gradnorm and weight_norm logging
                 metric_logger.info(
@@ -260,6 +271,9 @@ def train(
 
             if args.device != "hpu":
                 torch.cuda.empty_cache()
+        
+        if local_rank == 0:
+            print(f" \n all_loss =  {all_loss} \n avg_loss_per_epoch = {all_avg_loss_per_epoch}")
 
         if args.checkpoint_at_epoch:
             base_logger.debug(f"Saving checkpoint at epoch {epoch}")
