@@ -8,6 +8,7 @@ while maintaining good load balance across distributed training ranks.
 # Third Party
 from numba import int64, njit
 import numpy as np
+import math 
 
 
 @njit
@@ -163,6 +164,13 @@ def _padded_batch_packing_core(
 
         n_batches += 1
         start_idx += batch_size
+        
+    # Deepak - our version to handle uneven distribution of minibatches across ranks
+    # -------------------------------------------------------------------------------------
+    if n_batches > num_ranks:
+        target_num_minibatches = math.floor(n_batches/num_ranks) * num_ranks
+            n_batches = target_num_minibatches
+    # -------------------------------------------------------------------------------------
 
     # Distribute batches across ranks
     batch_tokens = temp_batch_tokens[:n_batches]
