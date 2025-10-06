@@ -8,6 +8,7 @@ while maintaining good load balance across distributed training ranks.
 # Third Party
 from numba import int64, njit
 import numpy as np
+import math
 
 
 @njit
@@ -146,6 +147,7 @@ def _padded_batch_packing_core(
     n_batches = 0
 
     start_idx = 0
+
     while start_idx < n_sequences:
         # Find optimal batch size for current position
         batch_size = _find_optimal_batch_size(
@@ -164,6 +166,14 @@ def _padded_batch_packing_core(
         n_batches += 1
         start_idx += batch_size
 
+    # Deepak - our version to handle uneven distribution of minibatches across ranks
+    # -------------------------------------------------------------------------------------
+    if n_batches > num_ranks:
+        target_num_minibatches = math.floor(n_batches/num_ranks) * num_ranks
+        # if n_batches > target_num_minibatches:
+        n_batches = target_num_minibatches
+    # -------------------------------------------------------------------------------------
+
     # Distribute batches across ranks
     batch_tokens = temp_batch_tokens[:n_batches]
     my_batch_indices = _distribute_batches_balanced(batch_tokens, num_ranks, rank)
@@ -181,7 +191,6 @@ def _padded_batch_packing_core(
         batch_idx = my_batch_indices[i]
         size = temp_batch_sizes[batch_idx]
         max_batch_len = max(max_batch_len, size)
-
     result_indices = np.full((n_my_batches, max_batch_len), -1, dtype=np.int64)
     result_sizes = np.zeros(n_my_batches, dtype=np.int64)
 
