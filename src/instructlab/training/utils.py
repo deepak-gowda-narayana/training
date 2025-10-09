@@ -528,7 +528,7 @@ def get_module_class_from_name(
 ) -> torch.nn.Module | None:
     modules_children = list(model.children())
 
-    if model.__class__.__name__ == name:
+    if name in model.__class__.__name__ :
         return model.__class__
     elif len(modules_children) == 0:
         return
