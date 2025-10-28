@@ -93,7 +93,7 @@ class Model:
         # load GPT-OSS in bfloat16 because it's a massive model, but otherwise
         # we do not specify the default dtype so mixed precision training works
         # correctly
-        if self.is_gpt_oss:
+        if self.is_gpt_oss or self.device == "hpu":
             self.base_model_args["torch_dtype"] = torch.bfloat16
 
         # set flash attention accordingly
