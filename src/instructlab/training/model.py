@@ -102,6 +102,16 @@ class Model:
 
     def _post_model_init(self):
         """Common initialization steps that should happen after model initialization."""
+
+        use_torch_compile = os.environ.get("TORCH_COMPILE", "no").lower() == "yes"
+        if self.device == "cuda" and use_torch_compile:
+        self.model = torch.compile(
+            self.model,
+            backend="inductor",
+            mode="default"
+        )
+        logger.info("torch.compile enabled for NVIDIA (Inductor backend)")
+    
         self.reconcile_tokenizer()
         if self.lora_config:
             self.model = self.prepare_peft_model()
